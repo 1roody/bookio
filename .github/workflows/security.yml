@@ -92,6 +92,11 @@ jobs:
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/develop'
     continue-on-error: true
+    permissions:
+      contents: read
+      security-events: read
+      pull-requests: read
+      actions: read
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
