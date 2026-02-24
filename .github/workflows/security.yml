@@ -45,6 +45,10 @@ jobs:
     name: Secret Detection - Gitleaks
     runs-on: ubuntu-latest
     continue-on-error: true
+    permissions:
+      contents: read
+      security-events: write 
+      pull-requests: read 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -54,11 +58,13 @@ jobs:
       - name: Run Gitleaks scan
         uses: gitleaks/gitleaks-action@v2
         id: gitleaks
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           args: --exit-code 0 --report-format sarif --report-path gitleaks-results.sarif
 
       - name: Upload Gitleaks SARIF
-        uses: github/codeql-action/upload-sarif@v4
+        uses: github/codeql-action/upload-sarif@v3
         if: always()
         with:
           sarif_file: gitleaks-results.sarif
@@ -101,7 +107,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v2
+        uses: docker/setup-buildx-action@v4
 
       - name: Build Docker image
         uses: docker/build-push-action@v4
