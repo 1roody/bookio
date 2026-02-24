@@ -58,7 +58,7 @@ jobs:
           args: --exit-code 0 --report-format sarif --report-path gitleaks-results.sarif
 
       - name: Upload Gitleaks SARIF
-        uses: github/codeql-action/upload-sarif@v2
+        uses: github/codeql-action/upload-sarif@v3
         if: always()
         with:
           sarif_file: gitleaks-results.sarif
