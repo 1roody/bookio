@@ -1,6 +1,9 @@
 name: Security Tests
 
 on:
+  pull_request:
+    branches:
+      - develop
   push:
     branches:
       - main
@@ -32,7 +35,7 @@ jobs:
           cat npm-audit-report.json
 
       - name: Upload npm audit report
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: sca-npm-audit
           path: npm-audit-report.json
@@ -62,7 +65,7 @@ jobs:
           category: gitleaks
 
       - name: Upload Gitleaks report
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         if: always()
         with:
           name: secret-detection-gitleaks
@@ -124,7 +127,7 @@ jobs:
           category: trivy
 
       - name: Upload Trivy report
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         if: always()
         with:
           name: container-scan-trivy
