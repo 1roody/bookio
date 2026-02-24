@@ -47,24 +47,32 @@ jobs:
     continue-on-error: true
     permissions:
       contents: read
-      security-events: write 
-      pull-requests: read 
+      security-events: write
+      pull-requests: read
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
+      - name: Install Gitleaks
+        run: |
+          curl -sSfL https://github.com/gitleaks/gitleaks/releases/download/v8.24.3/gitleaks_8.24.3_linux_x64.tar.gz \
+            | tar -xz -C /usr/local/bin gitleaks
+
       - name: Run Gitleaks scan
-        uses: gitleaks/gitleaks-action@v2
         id: gitleaks
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          args: --exit-code 0 --report-format sarif --report-path gitleaks-results.sarif
+        run: |
+          gitleaks detect \
+            --source . \
+            --exit-code 0 \
+            --report-format sarif \
+            --report-path gitleaks-results.sarif \
+            --redact \
+            --verbose
 
       - name: Upload Gitleaks SARIF
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v4
         if: always()
         with:
           sarif_file: gitleaks-results.sarif
