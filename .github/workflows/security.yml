@@ -133,7 +133,6 @@ jobs:
   container-scan-trivy:
     name: Container Scan - Trivy
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/develop'
     continue-on-error: true
     steps:
       - name: Checkout code
