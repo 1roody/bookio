@@ -90,26 +90,45 @@ jobs:
   sast-semgrep:
     name: SAST - Semgrep
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/develop'
     continue-on-error: true
+    if: (github.actor != 'dependabot[bot]')
     permissions:
       contents: read
-      security-events: read
+      security-events: write
       pull-requests: read
       actions: read
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Run Semgrep
-        uses: returntocorp/semgrep-action@v1
+      - name: Install Semgrep
+        run: |
+          python3 -m pip install --quiet semgrep
 
-      - name: Upload SARIF
+      - name: Run Semgrep scan
+        id: semgrep
+        run: |
+          semgrep scan \
+            --config auto \
+            --sarif \
+            --output semgrep-results.sarif \
+            --error \
+            || true
+
+      - name: Upload Semgrep SARIF
         uses: github/codeql-action/upload-sarif@v4
         if: always()
         with:
-          sarif_file: semgrep.sarif
+          sarif_file: semgrep-results.sarif
           category: semgrep
+
+      - name: Upload Semgrep report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: sast-semgrep
+          path: semgrep-results.sarif
+          retention-days: 30
 
   container-scan-trivy:
     name: Container Scan - Trivy
