@@ -133,17 +133,16 @@ jobs:
   container-scan-trivy:
     name: Container Scan - Trivy
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/develop'
     continue-on-error: true
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4
+        uses: docker/setup-buildx-action@v3
 
       - name: Build Docker image
-        uses: docker/build-push-action@v4
+        uses: docker/build-push-action@v3
         with:
           context: .
           file: ./Dockerfile
