@@ -136,6 +136,11 @@ jobs:
     name: Container Scan - Trivy
     runs-on: ubuntu-latest
     continue-on-error: true
+    permissions:
+      contents: read
+      security-events: write
+      pull-requests: read
+      actions: read
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
