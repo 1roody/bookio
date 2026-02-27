@@ -51,7 +51,7 @@ jobs:
           cat image-info.txt
 
       - name: Upload image info
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: image-info
           path: image-info.txt
