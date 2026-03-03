@@ -19,7 +19,7 @@ jobs:
 
       - name: Start test environment
         run: |
-          docker-compose -f docker-compose.dast.yml up -d
+          docker compose -f docker-compose.dast.yml up -d
           echo "Waiting for services to be ready..."
           sleep 10
 
@@ -51,7 +51,7 @@ jobs:
 
       - name: Cleanup test environment
         if: always()
-        run: docker-compose -f docker-compose.dast.yml down -v
+        run: docker compose -f docker-compose.dast.yml down -v
 
   dast-summary:
     name: DAST Summary
