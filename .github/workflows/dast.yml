@@ -13,45 +13,63 @@ jobs:
     runs-on: ubuntu-latest
     if: github.event.workflow_run.conclusion == 'success'
     continue-on-error: true
+    permissions:
+      contents: read
+      issues: write
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Start test environment
         run: |
-          docker-compose -f docker-compose.dast.yml up -d
+          docker compose -f docker-compose.dast.yml up -d
           echo "Waiting for services to be ready..."
           sleep 10
 
       - name: Health check
         run: |
           for i in {1..30}; do
-            if curl -f http://localhost:8080/health 2>/dev/null; then
+            if curl -sf http://localhost:8080/health 2>/dev/null; then
               echo "Services healthy"
               exit 0
             fi
             echo "Waiting... ($i/30)"
             sleep 2
           done
-          echo "Services ready for testing"
+          echo "Proceeding anyway..."
+
+      - name: Pull ZAP image
+        run: docker pull ghcr.io/zaproxy/zaproxy:stable
 
       - name: Run OWASP ZAP baseline scan
-        uses: zaproxy/action-baseline@v0.7.0
-        with:
-          target: 'http://localhost:8080'
-          cmd_options: '-a'
+        run: |
+          mkdir -p zap-output && chmod 777 zap-output
+
+          docker run --rm \
+            --network host \
+            -v $(pwd)/zap-output:/zap/wrk/:rw \
+            -u root \
+            ghcr.io/zaproxy/zaproxy:stable \
+            zap-baseline.py \
+              -t http://localhost:8080 \
+              -r zap-report.html \
+              -J zap-report.json \
+              -a \
+              -I
 
       - name: Upload ZAP report
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         if: always()
         with:
           name: dast-zap-results
-          path: report_md.md
+          path: |
+            zap-output/zap-report.html
+            zap-output/zap-report.json
           retention-days: 30
 
       - name: Cleanup test environment
         if: always()
-        run: docker-compose -f docker-compose.dast.yml down -v
+        run: docker compose -f docker-compose.dast.yml down -v
 
   dast-summary:
     name: DAST Summary
@@ -64,4 +82,3 @@ jobs:
           echo "DAST Test Summary"
           echo "================="
           echo "OWASP ZAP: ${{ needs.dast-owasp-zap.result }}"
-          echo "Status: Tests completed"
