@@ -1,0 +1,10 @@
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: bookio
+  annotations:
+    github.com/project-slug: 1roody/bookio
+spec:
+  type: other
+  lifecycle: unknown
+  owner: admins
