@@ -24,6 +24,10 @@ concurrency:
 
 permissions:
   contents: read
+  actions: read
+  pull-requests: read
+  security-events: write
+  packages: write
 
 jobs:
   changes:
@@ -145,14 +149,16 @@ jobs:
             run_iac_scan=true
           fi
 
-          if [[ "$event_name" == "pull_request" && "$container_changed" == "true" ]]; then
+          if [[ "$container_changed" == "true" ]]; then
             run_build=true
+            run_container_scan=true
+            container_image_ref="ghcr.io/${GITHUB_REPOSITORY}:${GITHUB_SHA}"
           fi
 
           if [[ "$event_name" == "push" && "$ref_name" == "main" ]]; then
             if [[ "$app_changed" == "true" || "$deps_changed" == "true" || "$container_changed" == "true" ]]; then
+              run_build=true
               run_deploy=true
-              run_container_scan=true
               run_dast=true
               container_image_ref="ghcr.io/${GITHUB_REPOSITORY}:${GITHUB_SHA}"
             fi
@@ -211,6 +217,9 @@ jobs:
     needs: changes
     if: needs.changes.outputs.run_build == 'true'
     uses: ./.github/workflows/build.yml
+    with:
+      image-ref: ${{ needs.changes.outputs.container_image_ref }}
+      push-image: true
     secrets: inherit
 
   secret-detection:
@@ -241,11 +250,10 @@ jobs:
     name: Container Scan
     needs:
       - changes
-      - predeploy-gate
-      - deploy
+      - build
     if: |
       needs.changes.outputs.run_container_scan == 'true' &&
-      (needs.deploy.result == 'success' || needs.deploy.result == 'skipped')
+      (needs.build.result == 'success' || needs.build.result == 'skipped')
     uses: ./.github/workflows/container-trivy.yml
     with:
       image-ref: ${{ needs.changes.outputs.container_image_ref }}
@@ -266,6 +274,7 @@ jobs:
       - secret-detection
       - sast
       - sca-fs
+      - container-scan
       - iac-scan
     if: always()
     runs-on: ubuntu-latest
@@ -274,6 +283,7 @@ jobs:
         shell: bash
         env:
           BUILD_RESULT: ${{ needs.build.result }}
+          CONTAINER_RESULT: ${{ needs.container-scan.result }}
           IAC_RESULT: ${{ needs.iac-scan.result }}
           SAST_RESULT: ${{ needs.sast.result }}
           SCA_RESULT: ${{ needs.sca-fs.result }}
@@ -286,6 +296,7 @@ jobs:
             "$SECRET_RESULT"
             "$SAST_RESULT"
             "$SCA_RESULT"
+            "$CONTAINER_RESULT"
             "$IAC_RESULT"
           )
 
@@ -303,6 +314,8 @@ jobs:
       - predeploy-gate
     if: needs.changes.outputs.run_deploy == 'true'
     uses: ./.github/workflows/deploy.yml
+    with:
+      source-image-ref: ${{ needs.changes.outputs.container_image_ref }}
     secrets: inherit
 
   dast:
