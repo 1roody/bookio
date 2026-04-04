@@ -1,0 +1,318 @@
+name: CI/CD Pipeline
+
+on:
+  pull_request:
+    branches:
+      - main
+      - develop
+    types:
+      - opened
+      - synchronize
+      - reopened
+      - ready_for_review
+  push:
+    branches:
+      - main
+      - develop
+  workflow_dispatch:
+  schedule:
+    - cron: '23 3 * * *'
+
+concurrency:
+  group: security-pipeline-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  changes:
+    name: Detect Changes
+    runs-on: ubuntu-latest
+    outputs:
+      app_changed: ${{ steps.detect.outputs.app_changed }}
+      container_image_ref: ${{ steps.detect.outputs.container_image_ref }}
+      container_changed: ${{ steps.detect.outputs.container_changed }}
+      deps_changed: ${{ steps.detect.outputs.deps_changed }}
+      full_scan: ${{ steps.detect.outputs.full_scan }}
+      iac_changed: ${{ steps.detect.outputs.iac_changed }}
+      run_build: ${{ steps.detect.outputs.run_build }}
+      run_container_scan: ${{ steps.detect.outputs.run_container_scan }}
+      run_dast: ${{ steps.detect.outputs.run_dast }}
+      run_deploy: ${{ steps.detect.outputs.run_deploy }}
+      run_iac_scan: ${{ steps.detect.outputs.run_iac_scan }}
+      run_sast: ${{ steps.detect.outputs.run_sast }}
+      run_sca_fs: ${{ steps.detect.outputs.run_sca_fs }}
+      run_secret_scan: ${{ steps.detect.outputs.run_secret_scan }}
+      secret_log_opts: ${{ steps.detect.outputs.secret_log_opts }}
+      secret_scan_mode: ${{ steps.detect.outputs.secret_scan_mode }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Detect relevant changes
+        id: detect
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          event_name="${{ github.event_name }}"
+          ref_name="${GITHUB_REF#refs/heads/}"
+          full_scan=false
+          changed_files=""
+          container_image_ref=""
+          secret_scan_mode="diff"
+          secret_log_opts=""
+
+          if [[ "$event_name" == "schedule" || "$event_name" == "workflow_dispatch" ]]; then
+            full_scan=true
+            secret_scan_mode="full"
+            changed_files="$(git ls-files)"
+          elif [[ "$event_name" == "pull_request" ]]; then
+            git fetch --no-tags origin "${{ github.base_ref }}" --depth=1
+            changed_files="$(git diff --name-only "origin/${{ github.base_ref }}"...HEAD)"
+            secret_log_opts="origin/${{ github.base_ref }}..HEAD"
+          elif [[ "$event_name" == "push" ]]; then
+            before_sha="${{ github.event.before }}"
+
+            if [[ "$before_sha" == "0000000000000000000000000000000000000000" ]]; then
+              changed_files="$(git ls-files)"
+              secret_scan_mode="full"
+            else
+              changed_files="$(git diff --name-only "$before_sha" "$GITHUB_SHA")"
+              secret_log_opts="${before_sha}..${GITHUB_SHA}"
+            fi
+          fi
+
+          if [[ -z "$changed_files" ]]; then
+            changed_files=""
+          fi
+
+          has_match() {
+            local pattern="$1"
+            if [[ -z "$changed_files" ]]; then
+              return 1
+            fi
+            grep -Eq "$pattern" <<<"$changed_files"
+          }
+
+          app_changed=false
+          deps_changed=false
+          container_changed=false
+          iac_changed=false
+          workflow_changed=false
+
+          if has_match '^(src/|package\.json$|package-lock\.json$)'; then
+            app_changed=true
+          fi
+
+          if has_match '^(package\.json$|package-lock\.json$)'; then
+            deps_changed=true
+          fi
+
+          if has_match '^(Dockerfile$|docker-compose.*\.yml$|package\.json$|package-lock\.json$)'; then
+            container_changed=true
+          fi
+
+          if has_match '^(iac-demo/)'; then
+            iac_changed=true
+          fi
+
+          if has_match '^(\.github/workflows/)'; then
+            workflow_changed=true
+          fi
+
+          run_secret_scan=true
+          run_sast=false
+          run_sca_fs=false
+          run_container_scan=false
+          run_iac_scan=false
+          run_build=false
+          run_deploy=false
+          run_dast=false
+
+          if [[ "$full_scan" == "true" || "$app_changed" == "true" || "$workflow_changed" == "true" ]]; then
+            run_sast=true
+          fi
+
+          if [[ "$full_scan" == "true" || "$deps_changed" == "true" ]]; then
+            run_sca_fs=true
+          fi
+
+          if [[ "$full_scan" == "true" || "$iac_changed" == "true" ]]; then
+            run_iac_scan=true
+          fi
+
+          if [[ "$event_name" == "pull_request" && "$container_changed" == "true" ]]; then
+            run_build=true
+          fi
+
+          if [[ "$event_name" == "push" && "$ref_name" == "main" ]]; then
+            if [[ "$app_changed" == "true" || "$deps_changed" == "true" || "$container_changed" == "true" ]]; then
+              run_deploy=true
+              run_container_scan=true
+              run_dast=true
+              container_image_ref="ghcr.io/${GITHUB_REPOSITORY}:${GITHUB_SHA}"
+            fi
+          fi
+
+          if [[ "$full_scan" == "true" ]]; then
+            run_container_scan=true
+            run_dast=true
+            container_image_ref="ghcr.io/${GITHUB_REPOSITORY}:latest"
+          fi
+
+          {
+            echo "app_changed=$app_changed"
+            echo "container_image_ref=$container_image_ref"
+            echo "container_changed=$container_changed"
+            echo "deps_changed=$deps_changed"
+            echo "full_scan=$full_scan"
+            echo "iac_changed=$iac_changed"
+            echo "run_build=$run_build"
+            echo "run_container_scan=$run_container_scan"
+            echo "run_dast=$run_dast"
+            echo "run_deploy=$run_deploy"
+            echo "run_iac_scan=$run_iac_scan"
+            echo "run_sast=$run_sast"
+            echo "run_sca_fs=$run_sca_fs"
+            echo "run_secret_scan=$run_secret_scan"
+            echo "secret_log_opts=$secret_log_opts"
+            echo "secret_scan_mode=$secret_scan_mode"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Print execution plan
+        shell: bash
+        run: |
+          cat <<EOF
+          Event: ${{ github.event_name }}
+          Full scan: ${{ steps.detect.outputs.full_scan }}
+          App changed: ${{ steps.detect.outputs.app_changed }}
+          Dependencies changed: ${{ steps.detect.outputs.deps_changed }}
+          Container changed: ${{ steps.detect.outputs.container_changed }}
+          Container image ref: ${{ steps.detect.outputs.container_image_ref }}
+          IaC changed: ${{ steps.detect.outputs.iac_changed }}
+          Run build: ${{ steps.detect.outputs.run_build }}
+          Run SAST: ${{ steps.detect.outputs.run_sast }}
+          Run SCA FS: ${{ steps.detect.outputs.run_sca_fs }}
+          Run secret scan: ${{ steps.detect.outputs.run_secret_scan }}
+          Run container scan: ${{ steps.detect.outputs.run_container_scan }}
+          Run IaC scan: ${{ steps.detect.outputs.run_iac_scan }}
+          Run deploy: ${{ steps.detect.outputs.run_deploy }}
+          Run DAST: ${{ steps.detect.outputs.run_dast }}
+          Secret mode: ${{ steps.detect.outputs.secret_scan_mode }}
+          Secret log opts: ${{ steps.detect.outputs.secret_log_opts }}
+          EOF
+
+  build:
+    name: Build Validation
+    needs: changes
+    if: needs.changes.outputs.run_build == 'true'
+    uses: ./.github/workflows/build.yml
+    secrets: inherit
+
+  secret-detection:
+    name: Secret Detection
+    needs: changes
+    if: needs.changes.outputs.run_secret_scan == 'true'
+    uses: ./.github/workflows/secret-gitleaks.yml
+    with:
+      mode: ${{ needs.changes.outputs.secret_scan_mode }}
+      log-opts: ${{ needs.changes.outputs.secret_log_opts }}
+    secrets: inherit
+
+  sast:
+    name: SAST
+    needs: changes
+    if: needs.changes.outputs.run_sast == 'true'
+    uses: ./.github/workflows/sast-semgrep.yml
+    secrets: inherit
+
+  sca-fs:
+    name: SCA Filesystem
+    needs: changes
+    if: needs.changes.outputs.run_sca_fs == 'true'
+    uses: ./.github/workflows/sca-trivy-fs.yml
+    secrets: inherit
+
+  container-scan:
+    name: Container Scan
+    needs:
+      - changes
+      - predeploy-gate
+      - deploy
+    if: |
+      needs.changes.outputs.run_container_scan == 'true' &&
+      (needs.deploy.result == 'success' || needs.deploy.result == 'skipped')
+    uses: ./.github/workflows/container-trivy.yml
+    with:
+      image-ref: ${{ needs.changes.outputs.container_image_ref }}
+    secrets: inherit
+
+  iac-scan:
+    name: IaC Scan
+    needs: changes
+    if: needs.changes.outputs.run_iac_scan == 'true'
+    uses: ./.github/workflows/iac-trivy.yml
+    secrets: inherit
+
+  predeploy-gate:
+    name: Predeploy Gate
+    needs:
+      - changes
+      - build
+      - secret-detection
+      - sast
+      - sca-fs
+      - iac-scan
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate prerequisite results
+        shell: bash
+        env:
+          BUILD_RESULT: ${{ needs.build.result }}
+          IAC_RESULT: ${{ needs.iac-scan.result }}
+          SAST_RESULT: ${{ needs.sast.result }}
+          SCA_RESULT: ${{ needs.sca-fs.result }}
+          SECRET_RESULT: ${{ needs.secret-detection.result }}
+        run: |
+          set -euo pipefail
+
+          results=(
+            "$BUILD_RESULT"
+            "$SECRET_RESULT"
+            "$SAST_RESULT"
+            "$SCA_RESULT"
+            "$IAC_RESULT"
+          )
+
+          for result in "${results[@]}"; do
+            if [[ "$result" == "failure" || "$result" == "cancelled" ]]; then
+              echo "A prerequisite job failed or was cancelled."
+              exit 1
+            fi
+          done
+
+  deploy:
+    name: Deploy
+    needs:
+      - changes
+      - predeploy-gate
+    if: needs.changes.outputs.run_deploy == 'true'
+    uses: ./.github/workflows/deploy.yml
+    secrets: inherit
+
+  dast:
+    name: DAST
+    needs:
+      - changes
+      - predeploy-gate
+      - deploy
+    if: |
+      needs.changes.outputs.run_dast == 'true' &&
+      (needs.deploy.result == 'success' || needs.deploy.result == 'skipped')
+    uses: ./.github/workflows/dast.yml
+    secrets: inherit
