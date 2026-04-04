@@ -17,6 +17,10 @@ db.serialize(() => {
   )`);
 });
 
+app.get('/health', (_req, res) => {
+  res.status(200).json({ status: 'ok' });
+});
+
 
 app.get('/livros', (req, res) => {
   db.all('SELECT * FROM livros', [], (err, rows) => {

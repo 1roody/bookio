@@ -1,21 +1,16 @@
 name: DAST
 
 on:
-  workflow_run:
-    workflows: [Build and Deploy, Security Tests]
-    types: [completed]
-    branches:
-      - main
+  workflow_call:
 
 jobs:
   dast-owasp-zap:
     name: DAST - OWASP ZAP
     runs-on: ubuntu-latest
-    if: github.event.workflow_run.conclusion == 'success'
+    timeout-minutes: 30
     continue-on-error: true
     permissions:
       contents: read
-      issues: write
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -70,15 +65,3 @@ jobs:
       - name: Cleanup test environment
         if: always()
         run: docker compose -f docker-compose.dast.yml down -v
-
-  dast-summary:
-    name: DAST Summary
-    runs-on: ubuntu-latest
-    if: always()
-    needs: [dast-owasp-zap]
-    steps:
-      - name: Summary
-        run: |
-          echo "DAST Test Summary"
-          echo "================="
-          echo "OWASP ZAP: ${{ needs.dast-owasp-zap.result }}"
